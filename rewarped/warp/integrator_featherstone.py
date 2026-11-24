@@ -706,6 +706,14 @@ def compute_link_transform(
 
 
 @wp.kernel
+def copy_unjointed_poses(
+    indices: wp.array(dtype=int), poses: wp.array(dtype=wp.transform), out: wp.array(dtype=wp.transform)
+):
+    body = indices[wp.tid()]
+    out[body] = poses[body]
+
+
+@wp.kernel
 def eval_rigid_fk(
     articulation_start: wp.array(dtype=int),
     joint_type: wp.array(dtype=int),
@@ -1576,6 +1584,11 @@ class FeatherstoneIntegrator(Integrator):
 
         self._step = 0
 
+        self.unjointed_body_indices = None
+        if 0 < model.joint_count < model.body_count:
+            indices = sorted(set(range(model.body_count)).difference(model.joint_child.numpy()))
+            self.unjointed_body_indices = wp.array(indices, dtype=int, device=model.device)
+
         self.compute_articulation_indices(model)
         self.allocate_model_aux_vars(model)
 
@@ -1779,6 +1792,17 @@ class FeatherstoneIntegrator(Integrator):
             # articulations
 
             if model.joint_count:
+                # The collision tape still needs the pose written by the previous substep's eval_fk.
+                solver_pose = wp.empty_like(state_in.body_q) if requires_grad else state_in.body_q
+                if requires_grad and self.unjointed_body_indices is not None:
+                    # Forward kinematics only initializes poses for joint children.
+                    wp.launch(
+                        copy_unjointed_poses,
+                        dim=len(self.unjointed_body_indices),
+                        inputs=[self.unjointed_body_indices, state_in.body_q],
+                        outputs=[solver_pose],
+                        device=model.device,
+                    )
                 # evaluate body transforms
                 wp.launch(
                     eval_rigid_fk,
@@ -1797,7 +1821,7 @@ class FeatherstoneIntegrator(Integrator):
                         model.joint_axis_start,
                         model.joint_axis_dim,
                     ],
-                    outputs=[state_in.body_q, state_in.body_q_com],
+                    outputs=[solver_pose, state_in.body_q_com],
                     device=model.device,
                 )
 
@@ -1822,7 +1846,7 @@ class FeatherstoneIntegrator(Integrator):
                         model.joint_axis_start,
                         model.joint_axis_dim,
                         model.fs_body_I_m,
-                        state_in.body_q,
+                        solver_pose,
                         state_in.body_q_com,
                         model.joint_X_p,
                         model.joint_X_c,
@@ -1845,7 +1869,7 @@ class FeatherstoneIntegrator(Integrator):
                         kernel=eval_rigid_contacts,
                         dim=model.rigid_contact_max,
                         inputs=[
-                            state_in.body_q,
+                            solver_pose,
                             state_in.body_v_s,
                             model.body_com,
                             model.shape_materials,
