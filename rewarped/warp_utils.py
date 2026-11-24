@@ -39,6 +39,13 @@ def sim_update(sim_params, model, states, control):
             sim_eval_kinematic_fk(model, state_0, state_1, sim_dt, sim_substeps, control)
 
         state_0.clear_forces()
+        if getattr(model, "save_contact_shape_ids", False) and (
+            model.shape_contact_pair_count or (model.ground and model.shape_ground_contact_pair_count)
+        ):
+            # The narrow-phase adjoint reads the broad-phase shape IDs by slot.
+            # Warp resets these arrays in collide(); retain this substep's pair on its tape.
+            model.rigid_contact_broad_shape0 = wp.empty_like(model.rigid_contact_broad_shape0)
+            model.rigid_contact_broad_shape1 = wp.empty_like(model.rigid_contact_broad_shape1)
         wp.sim.collide(model, state_0)
         integrator.simulate(model, state_0, state_1, sim_dt, control=control)
         state_0 = state_1

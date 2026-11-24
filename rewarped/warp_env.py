@@ -273,7 +273,11 @@ class WarpEnv(Environment):
 
         return model
 
+    # Opt in before the first reset, when the CUDA graphs have not yet been captured.
+    save_contact_shape_ids = False
+
     def init_sim(self):
+        self.model.save_contact_shape_ids = self.save_contact_shape_ids
         self.sim_time = 0.0
         self.render_time = 0.0
         self.num_frames = 0
