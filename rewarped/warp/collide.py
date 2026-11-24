@@ -1482,8 +1482,17 @@ def collide(model, state, edge_sdf_iter: int = 10, iterate_mesh_vertices: bool =
             )
 
         if model.shape_contact_pair_count or model.ground and model.shape_ground_contact_pair_count:
-            # clear old count
-            model.rigid_contact_count.zero_()
+            if requires_grad and getattr(model, "save_substep_contacts", True):
+                # The narrow-phase adjoint reads these discrete broad-phase decisions
+                # from the tape. Later collisions must not overwrite its inputs.
+                model.rigid_contact_count = wp.zeros_like(model.rigid_contact_count)
+                model.rigid_contact_broad_shape0 = wp.empty_like(model.rigid_contact_broad_shape0)
+                model.rigid_contact_broad_shape1 = wp.empty_like(model.rigid_contact_broad_shape1)
+                model.rigid_contact_point_id = wp.zeros_like(model.rigid_contact_point_id)
+                if model.rigid_contact_point_limit is not None:
+                    model.rigid_contact_point_limit = wp.zeros_like(model.rigid_contact_point_limit)
+            else:
+                model.rigid_contact_count.zero_()
 
             model.rigid_contact_broad_shape0.fill_(-1)
             model.rigid_contact_broad_shape1.fill_(-1)

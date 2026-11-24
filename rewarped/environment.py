@@ -155,6 +155,8 @@ class Environment:
     use_graph_capture: bool = wp.get_preferred_device().is_cuda
     synchronize: bool = True
     requires_grad: bool = False
+    # Disable only to reproduce the shared contact buffers of v1.3.0.
+    save_substep_contacts: bool = True
     num_envs: int = 8
 
     ground_plane: bool = True
@@ -184,6 +186,7 @@ class Environment:
         self.builder = self.create_builder()
         assert self.builder.num_envs == self.num_envs
         self.model = self.create_model()
+        self.model.save_substep_contacts = self.save_substep_contacts
 
         # self.device = self.model.device
         if not self.model.device.is_cuda:
